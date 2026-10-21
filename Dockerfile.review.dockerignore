@@ -13,7 +13,9 @@
 !model/
 !infra/docker/review/
 !docs/examples/
+!docs/manual/
 !examples/demo_runs/
+!examples/round_C1/
 !ui/
 ui/node_modules
 ui/dist

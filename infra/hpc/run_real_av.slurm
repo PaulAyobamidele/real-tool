@@ -122,11 +122,17 @@ export MLFLOW_STORE="/artifacts/mlflow/job_${SLURM_JOB_ID:-local}"
 echo "Ports: CARLA ${CARLA_PORT} (traffic manager $(( CARLA_PORT + 6000 ))), Redis ${REDIS_PORT}, MLflow ${MLFLOW_PORT}, API ${API_PORT}"
 # --- end per-job ports ---------------------------------------------------
 
+# --env: the image's %environment sets CARLA_PORT=2000 and REDIS_PORT=6379 and
+# wins over the job's exported values, so without it every job ran CARLA on
+# 2000 and Redis on 6379, and two jobs on one node shared both (study,
+# 2026-10-15). --env overrides the image's values.
 apptainer exec --nv --unsquash \
+    --env "CARLA_PORT=${CARLA_PORT},REDIS_PORT=${REDIS_PORT}" \
     --bind "$ARTIFACTS_DIR:/artifacts" \
     "${SOURCE_BIND[@]}" \
     "$IMAGE" bash -c '
         set -e
+        echo "Ports inside the container: CARLA ${CARLA_PORT}, Redis ${REDIS_PORT}"
         # Skip yolov5 pip-based auto-update check (2 failed attempts per
         # individual on an offline compute node, each costing real wall-clock
         # time across every evaluation - a speed optimization, not required
@@ -152,6 +158,16 @@ apptainer exec --nv --unsquash \
         /home/carla/CarlaUE4.sh -RenderOffScreen -nosound -carla-port="$CARLA_PORT" &
         CARLA_PID=$!
         sleep 20   # give the CARLA server time to come up before connecting
+        # This job must only ever drive its OWN CARLA. On a shared node a
+        # server that dies at start-up (bind: Address already in use) left the
+        # client driving another job s server (study, 2026-10-15). So: stop
+        # here if ours is not alive, and stop later if it dies.
+        if ! kill -0 $CARLA_PID 2>/dev/null; then
+            echo "CARLA SERVER DID NOT START on port $CARLA_PORT - stopping (no simulation against another server)"
+            (ss -ltnp 2>/dev/null || netstat -ltnp 2>/dev/null) | grep -E ":($CARLA_PORT|$((CARLA_PORT + 1)))\b" || echo "(cannot list the port holder)"
+            kill $MLFLOW_PID 2>/dev/null
+            exit 3
+        fi
 
         # CARLA/scenario_runner ship /home/carla/CarlaUE4/... read-only (even
         # under --unsquash - the chmod warning above happens every run, not
@@ -165,6 +181,12 @@ apptainer exec --nv --unsquash \
         export ARTIFACTS_DIR=/artifacts
         python3.8 api_app.py &
         API_PID=$!
+        # Watchdog: if our CARLA dies during the run, stop the API so no further
+        # scenario runs (and the job fails visibly instead of finishing on
+        # another server).
+        ( while kill -0 $CARLA_PID 2>/dev/null; do sleep 10; done
+          echo "CARLA SERVER EXITED during the run - stopping the job"
+          kill $API_PID 2>/dev/null ) &
         # Wait until the API actually answers instead of a fixed sleep: with
         # the source overlay on $SCRATCH (network FS, no cached .pyc) the
         # first import of api_app took well over 5 s and job 3803335 died on

@@ -28,7 +28,8 @@ export const layerSchema = z.enum(['data', 'model', 'system', 'requirement', 'sc
 export type Layer = z.infer<typeof layerSchema>;
 export const LAYERS = layerSchema.options;
 
-export const mitigationSchema = z.object({ layer: z.string(), action: z.string() });
+// passthrough: the study build records which of its menu choices it was (`choice`)
+export const mitigationSchema = z.object({ layer: z.string(), action: z.string() }).passthrough();
 export type Mitigation = z.infer<typeof mitigationSchema>;
 
 export const obstacleDecisionSchema = z
@@ -60,6 +61,8 @@ export const scopeDecisionSchema = z
     kind: z.enum(['rule', 'artefact']),
     evidence: z.string(),
     reason: z.string().nullable(),
+    /** Out of scope with no rule to invert: the limit to state, written into R1 as an assumption. */
+    limit: z.string().nullable().optional(),
     rule: scopeRuleSchema.optional(),
     description: z.string().optional(),
     suggested_fix: z.string().optional(),

@@ -59,7 +59,9 @@ S_CHANGES = {
 R_CHANGES = {
     ("DetectionTooLate", "requirement"): ("assuming", "ego_speed <= 5"),
     ("AdverseWeather", "requirement"): ("assuming", "fog_density <= 50"),
-    ("PedestrianSizeTooSmall", "requirement"): ("assuming", "pedestrian is at least 1.2 m tall"),
+    # no entry for PedestrianSizeTooSmall (owner, 2026-10-21, "option C"): a child is part of
+    # the world the car must handle, so the tool proposes no assumption that scopes children
+    # out; an engineer who thinks the world explains it writes one (change_for uses the words)
     ("PedestrianClothingNotVisible", "requirement"): ("assuming", "pedestrian clothing contrasts with the background"),
     ("StandoffUnnecessaryStop", "requirement"): ("ensuring", "vehicle resumes within 10 s once the crossing is clear"),
     ("BrakingNotLatched", "requirement"): ("ensuring", "once braking has started it continues until the vehicle has stopped or the pedestrian is clear"),
@@ -150,7 +152,8 @@ def scope_change(sid, s):
     test), or None without a verdict."""
     v = s.get("verdict")
     if v == "out_of_scope":
-        item = rule_as_assumption(s.get("rule")) or s.get("reason") or sid
+        # the stated limit; the reason only for documents written before the limit had its own field
+        item = rule_as_assumption(s.get("rule")) or s.get("limit") or s.get("reason") or sid
         return {"kind": "D", "from": sid, "layer": "requirement", "clause": "assuming",
                 "item": item, "text": f'assuming "{item}"'}
     if v == "in_scope":
@@ -192,6 +195,16 @@ def assumption_changes(doc, r0_assumptions):
     return changes
 
 
+# The study's car fixes (ui/src/study/menu.ts, car.ts): a participant picks a car, not a table
+# entry, so the choice - not the obstacle x layer table - names the module swaps. Recorded as
+# mitigation.choice in decisions.json; without it, the table applies as before.
+STUDY_CAR_CHOICES = {
+    "car_path_aware": [("Apply Brakes", "path_aware_braking")],
+    "car_larger_detector": [("Detect Pedestrian", "yolov5m")],
+    "car_both": [("Apply Brakes", "path_aware_braking"), ("Detect Pedestrian", "yolov5m")],
+}
+
+
 def plan_changes(doc, r0=None):
     """The list of changes the decisions imply. Each: {kind, from, layer,
     text, ...}; S-changes carry task/module/available, R-changes clause/item,
@@ -202,6 +215,22 @@ def plan_changes(doc, r0=None):
     avail = available_modules()
     for oid, o in doc.get("obstacles", {}).items():
         if o.get("verdict") not in ("accept", "rename") or not o.get("mitigation"):
+            continue
+        # triage (ui/src/study/triage.ts): "refine the requirement" records the
+        # reviewer's words; the edit itself is made in R1, never derived here
+        if o.get("resolution") == "refine":
+            continue
+        swaps = STUDY_CAR_CHOICES.get(o["mitigation"].get("choice"))
+        if swaps:
+            for task, module in swaps:
+                text = f'"{task}" performed by "{module}"'
+                same = next((c for c in changes if c.get("text") == text), None)
+                if same:  # one swap, citing every obstacle that asked for it
+                    same["from"] = f'{same["from"]}, {oid}'
+                else:
+                    changes.append({"kind": "S", "from": oid, "layer": o["mitigation"]["layer"],
+                                    "task": task, "module": module,
+                                    "available": _is_available(task, module, avail), "text": text})
             continue
         change = change_for(oid, o["mitigation"]["layer"], o["mitigation"].get("action"), avail)
         if change:

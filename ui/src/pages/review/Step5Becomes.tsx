@@ -1,5 +1,6 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
+import { Instructions } from '@/components/ui/Instructions';
 import { ChangeList, RequirementDiff } from '@/components/requirement/RequirementDiff';
 import { Button } from '@/components/ui/Button';
 import { KindChip } from '@/components/ui/Chip';
@@ -15,6 +16,13 @@ import type { AnalysisReport } from '@/services/schemas';
 import { deliverSignedFiles, prepareSigning } from '@/services/signing';
 import { unconfirmedCount, type Draft, type DraftAction } from '@/state/draft';
 import { useWorkspace } from '@/state/WorkspaceContext';
+import { loadExpertise } from '@/state/expertise';
+import { STUDY } from '@/study/config';
+import { RunNext } from '@/components/review/RunNext';
+import { Refinement } from './Refinement';
+import { loadSession } from '@/study/session';
+import { uploadConfigured } from '@/study/upload';
+import { signStudy, studyBlockers } from '@/study/signing';
 import { displayDate } from '@/utils/format';
 
 /** Step 5: R0 and R1 side by side, the changes labelled, and the one action that records the decision. */
@@ -39,8 +47,16 @@ export function Step5Becomes({
       return `# could not derive R1: ${error instanceof Error ? error.message : String(error)}\n${r0}`;
     }
   }, [r0, plan.changes]);
-  const r1 = draft.r1Override ?? r1Generated;
-  const edited = draft.r1Override !== null && draft.r1Override.trim() !== r1Generated.trim();
+  // the study build: R1 is the tool's only (no hand edits), so it parses and has a saved run
+  const r1 = STUDY ? r1Generated : (draft.r1Override ?? r1Generated);
+  const participant = STUDY ? (loadSession()?.id ?? '') : '';
+  useEffect(() => {
+    // the participant's anonymous ID signs; no names in the study
+    if (STUDY && participant && draft.reviewer !== participant)
+      dispatch({ type: 'reviewer/set', value: participant });
+  }, [participant, draft.reviewer, dispatch]);
+  const edited =
+    !STUDY && draft.r1Override !== null && draft.r1Override.trim() !== r1Generated.trim();
   const problems = validateDecisions(draft.doc);
   const gaps = completionGaps(draft.doc);
   const complete = isComplete(draft.doc);
@@ -61,7 +77,8 @@ export function Step5Becomes({
       `${unconfirmed} pre-filled verdict${unconfirmed === 1 ? '' : 's'} to confirm (step 4)`,
     );
   if (plan.problems.length) blockers.push(...plan.problems.map((p) => p.message));
-  if (!reviewer) blockers.push('your name');
+  if (!reviewer) blockers.push(STUDY ? 'your participant ID' : 'your name');
+  if (STUDY) blockers.push(...studyBlockers(draft.doc, r1));
   if (existing && !isToolProposal(existing) && !replaceConfirmed)
     blockers.push('confirm replacing the signed decisions.json');
 
@@ -70,11 +87,26 @@ export function Step5Becomes({
     setBusy(true);
     setError(null);
     try {
+      if (STUDY) {
+        const signed = await signStudy({ doc: draft.doc, report, r0, round });
+        dispatch({
+          type: 'signed',
+          record: {
+            at: new Date().toISOString(),
+            mode: 'downloaded',
+            paths: [signed.zipName],
+            reviewer,
+          },
+          doc: signed.result.doc,
+        });
+        return;
+      }
       const result = prepareSigning({
         doc: draft.doc,
         report,
         r0,
         reviewer,
+        expertise: loadExpertise(),
         r1Override: edited ? r1 : null,
       });
       const outcome = await deliverSignedFiles(workspace.source, round.dir, result.files);
@@ -113,6 +145,11 @@ export function Step5Becomes({
               ))}
               . Nothing was launched.
             </>
+          ) : STUDY ? (
+            <>
+              Downloaded <FileName>{draft.signed.paths[0]}</FileName>. Please send it to the
+              researcher.
+            </>
           ) : (
             <>
               Downloaded{' '}
@@ -125,6 +162,27 @@ export function Step5Becomes({
         </Notice>
       ) : null}
 
+      {r0.trim() ? (
+        <Refinement
+          round={round}
+          report={report}
+          draft={draft}
+          dispatch={dispatch}
+          r0={r0}
+          r1={r1}
+          changes={plan.changes}
+        />
+      ) : null}
+
+      {r0.trim() ? (
+        <Instructions cta="Check every change, then sign below.">
+          <p>
+            Every change the refined requirement makes, each labelled by its kind: a change to the
+            system (S), to a domain assumption (D), to the requirement (R) or to the test (T). Below
+            it, the requirement before and after, side by side.
+          </p>
+        </Instructions>
+      ) : null}
       <section className="card flex flex-col gap-4 p-5" aria-label="Changes">
         <div className="flex flex-wrap items-center gap-3">
           <h2 className="text-lg">Changes</h2>
@@ -153,41 +211,49 @@ export function Step5Becomes({
         ) : (
           <Notice tone="error">No requirement text for this round.</Notice>
         )}
-        <Disclosure summary={edited ? 'Edit R1 (edited by hand)' : 'Edit R1 before signing'}>
-          <TextAreaField
-            label="R1"
-            rows={8}
-            value={r1}
-            onChange={(e) => dispatch({ type: 'r1/override', value: e.target.value })}
-            hint={
-              edited
-                ? 'Edited by hand: not parse-checked here; the Python refiner re-checks it.'
-                : undefined
-            }
-          />
-          {draft.r1Override !== null ? (
-            <Button
-              size="sm"
-              variant="quiet"
-              className="mt-2"
-              onClick={() => dispatch({ type: 'r1/override', value: null })}
-            >
-              Discard my edits
-            </Button>
-          ) : null}
-        </Disclosure>
+        {STUDY ? null : (
+          <Disclosure summary={edited ? 'Edit R1 (edited by hand)' : 'Edit R1 before signing'}>
+            <TextAreaField
+              label="R1"
+              rows={8}
+              value={r1}
+              onChange={(e) => dispatch({ type: 'r1/override', value: e.target.value })}
+              hint={
+                edited
+                  ? 'Edited by hand: not parse-checked here; the Python refiner re-checks it.'
+                  : undefined
+              }
+            />
+            {draft.r1Override !== null ? (
+              <Button
+                size="sm"
+                variant="quiet"
+                className="mt-2"
+                onClick={() => dispatch({ type: 'r1/override', value: null })}
+              >
+                Discard my edits
+              </Button>
+            ) : null}
+          </Disclosure>
+        )}
       </section>
 
       <section className="card flex flex-col gap-4 p-5" aria-label="Sign">
         <h2 className="text-lg">Sign</h2>
-        <TextField
-          label="Reviewer (your name)"
-          required
-          value={draft.reviewer}
-          onChange={(e) => dispatch({ type: 'reviewer/set', value: e.target.value })}
-          autoComplete="name"
-          className="max-w-md"
-        />
+        {STUDY ? (
+          <p className="text-sm">
+            Signed as participant <span className="font-mono font-semibold">{participant}</span>.
+          </p>
+        ) : (
+          <TextField
+            label="Reviewer (your name)"
+            required
+            value={draft.reviewer}
+            onChange={(e) => dispatch({ type: 'reviewer/set', value: e.target.value })}
+            autoComplete="name"
+            className="max-w-md"
+          />
+        )}
         {existing ? (
           <Notice
             tone={isToolProposal(existing) ? 'tool' : 'warning'}
@@ -211,17 +277,33 @@ export function Step5Becomes({
             )}
           </Notice>
         ) : null}
-        <p className="text-sm text-text-muted">
-          Writes <FileName>decisions.json</FileName>, <FileName>R0.dsl</FileName>,{' '}
-          <FileName>R1.dsl</FileName>, <FileName>requirement_diff.md</FileName>{' '}
-          {canWrite ? (
-            <>
-              into <FileName>{round.dir}/</FileName>.
-            </>
-          ) : (
-            <>as downloads (this source is read-only).</>
-          )}
-        </p>
+        {STUDY ? (
+          <Instructions>
+            {uploadConfigured ? (
+              <>
+                When you sign, your session is sent to the research team, and a copy,{' '}
+                <FileName>{`study_${participant}.zip`}</FileName>, downloads to your computer.
+              </>
+            ) : (
+              <>
+                When you sign, a file <FileName>{`study_${participant}.zip`}</FileName> downloads.
+                Please send it to the researcher. Nothing is uploaded.
+              </>
+            )}
+          </Instructions>
+        ) : (
+          <Instructions>
+            Writes <FileName>decisions.json</FileName>, <FileName>R0.dsl</FileName>,{' '}
+            <FileName>R1.dsl</FileName>, <FileName>requirement_diff.md</FileName>{' '}
+            {canWrite ? (
+              <>
+                into <FileName>{round.dir}/</FileName>.
+              </>
+            ) : (
+              <>as downloads (this source is read-only).</>
+            )}
+          </Instructions>
+        )}
         {blockers.length ? (
           <Disclosure summary={`Before signing (${blockers.length})`} defaultOpen compact>
             <ul className="list-disc pl-4 text-sm text-text-muted">
@@ -232,17 +314,20 @@ export function Step5Becomes({
           </Disclosure>
         ) : null}
         {error ? <Notice tone="error">{error}</Notice> : null}
-        <div>
+        <div className="flex justify-center pt-2">
           <Button
             variant="primary"
+            size="lg"
             disabled={blockers.length > 0 || busy || !workspace}
             busy={busy}
             onClick={sign}
           >
-            Sign: write the decision files
+            {STUDY ? 'Sign and download' : 'Sign: write the decision files'}
           </Button>
         </div>
       </section>
+      {/* the normal tool: once signed, the refined requirement can be run as the next run */}
+      {draft.signed && !STUDY && r1.trim() ? <RunNext round={round} r1={r1} /> : null}
     </div>
   );
 }

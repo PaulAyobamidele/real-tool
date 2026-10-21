@@ -595,3 +595,454 @@ Built as planned, with these differences:
   runs; closing never stops a job (the toolbar button follows it). Also: an
   empty answer from the cluster's code check is a failed check ("did not
   answer properly", raw answer kept), not "every file missing" - seen once.
+- Study mode (2026-10-18, in progress; brief `docs/design/study_mode_brief.md`,
+  decisions in Notes 8.54): a separate study-only build (`VITE_STUDY=1`) for a
+  GitHub page - the normal tool's pages and flow for one participant, runs
+  replayed from the pre-computed rounds, the tool's verdicts hidden, every
+  action logged, one zip per participant. Step 1: `ui/src/study/` - a start
+  screen (profession, random anonymous ID `S-XXXX` shown in the header), the
+  session kept in the browser (a reload resumes it), and an append-only log of
+  screens and steps entered and left. Step 2: the rounds bundled by
+  `scripts/make-study-site.mjs` (C1 to review, C2-C4 as follow-ups with their
+  v2 reports; neutral run ids - sha256 of the study id - so nothing on screen
+  says "study"; the real id kept as `study_round`); the study Workspace has one
+  fixed source; `decisions.json` in a round is refused; report banners hidden.
+  Step 3: the replayed Run test. The Run test hook takes its cluster calls from
+  one object - the live helper, or in the study build `src/study/replay.ts`,
+  which answers the same calls with the same shapes from the saved rounds
+  (checks ~4 s, queue ~6 s, 288 scenarios over ~50 s, a 7-digit job number, a
+  node, ports; no partial reports, since none exist to show). A round is
+  revealed only when its replay is fetched (`src/study/studySource.ts`, per
+  participant), as a run comes back in the real tool. Write a requirement
+  works without the helper from files made at build time
+  (`study-authoring/`: catalog + R0's check; not `authoring/`, which the dev
+  and preview servers forward to the helper).
+  Step 4: the tool's judgement hidden, behind the one `STUDY` switch - the
+  13 inventoried places plus four found while testing (the "Supported this
+  round" row, the "What the tool says" headings, the round-to-round status
+  chip whose wording follows the verdict, and the catalogue's fixes on step
+  3); obstacles A to Z everywhere; the study menu (six choices, `choice`
+  recorded beside a valid layer; "Change a domain assumption" -> layer
+  `requirement`, owner 2026-10-18); every accepted obstacle needs a fix
+  (`isComplete` / `completionGaps(doc, everyAccepted)`). A test walks the five
+  steps of a fixture round for verdict words; the built site was scanned the
+  same way on the real study round (no words, no verdict colours).
+  Step 5: signing. R1 from the tool only; the study's car changes become
+  module swaps adding up to C1-C4 (`study/car.ts`); own-words changes stay in
+  decisions.json. Checks before signing: R1's car is one of C1-C4 and bundled
+  with the site; no double quote in an assumption text. A `study` block in
+  decisions.json; one zip per participant with the four signed files and
+  `log.jsonl`. The log now has every decision (old and new value; typing
+  grouped per field, flushed before signing) and every click on something
+  interactive (evidence opened). The log falls back to memory only if the
+  browser's storage fails.
+  Step 6: re-judging on the same simulations. What Python computes before the
+  assumptions (outcomes, run quantities, trace measures, the safety rule,
+  test-scope rules, failure types) is exported per simulation at build time
+  (`ui/scripts/study_quantities.py`, the analysis's own functions); the page
+  ports the rest of `analyse()` for what the Test Execution Result shows:
+  parse/check assumptions, their summary and verdict, soft goals over counted
+  encounters, the failure model's counts, the per-simulation records and the
+  spurious summary. Not recomputed: obstacles, failure rates by parameter and
+  scenario, timing, map (`rejudged.partial`). Contract-tested against
+  `analyse(run, requirement=R1)` for six revised requirements - exact on run
+  2b (160 simulations) and on the study round C1 (864).
+  Decision (owner, 2026-10-18): the session ends at signing - the study needs
+  the participant's first refinement; R1 is run on the cluster afterwards.
+  So no Run test on R1 in the page (planned step 7 dropped); the re-judging of
+  step 6 stays in the code, unused by participants. After signing, a
+  thank-you screen with the zip (`study/ended.ts`, `EndScreen.tsx`); the log
+  ends with `session_end`.
+  Step 8: `npm run publish:study` (build, then - after a y/N prompt - a
+  single-commit force push of the built site to `gh-pages`, `.nojekyll`
+  included; the round data never enters the main history); the build is
+  stamped with `git describe --always --dirty`. The brief's ten acceptance
+  checks passed on a GitHub-Pages-like static server with the site in a
+  sub-folder (`artifacts/cluster_checks/2026-10-18_study_mode_acceptance.md`).
+- Palette (owner, 2026-10-19): five colours, one job each, defined once as
+  tokens (`src/styles/tokens.css`): `#EAEAAA` page background; `#9EB200` the
+  instructions box ONLY (`components/ui/Instructions.tsx`: the start screen,
+  the line under each step title, the run panel's guidance, step 5's signing
+  note) so the eye learns to read it first; `#8A1538` (wine, was `#610000`) the header, the same on
+  every page including the study's start and thank-you screens; `#667D01`
+  the primary button fill, and a 12% darker shade `#5A6E01` for green text,
+  links, selection, focus and "passed" (4.6:1 even on the page background,
+  where the palette green gives only 3.7:1); `#AD1F07` failed and errors.
+  Text `#172033`, cards white. Meaning is never colour alone (a word or ✓/✕
+  beside it). Light only (dark mode removed; `dark:` styles need a class the
+  app never sets). KAOS notation, change kinds and map series keep their
+  colours. `tests/styles/contrast.test.ts` checks every text/background pair
+  in the tokens against WCAG 2.2 AA and that the bright green has no other use.
+- Start screen and name (owner, 2026-10-19): the study's first page shows the
+  tool's name, REAL, large and centred, with "A Tool for Refining Autonomous
+  Systems Requirements through Compliance Failure Analysis" beneath; the
+  participant's background is now their expertise, typed in their own words
+  (`study.expertise` in decisions.json, `session_start` in the log), not six
+  buttons. The header and the page title read REAL in both builds.
+- Greens swapped (owner, 2026-10-19): the instructions box is `#667D01` with
+  white text (4.7:1) and is that colour's only use; the primary button is
+  `#9EB200` with dark text (6.8:1). Neither green is a text colour any more:
+  links, "passed", selected items and the focus ring are the dark text
+  colour, marked by an underline (links always underlined; text-like buttons
+  too), a tick or a border. The contrast test checks the new pairs and that
+  `#667D01` has no use but the instructions box.
+- Overview page (owner, 2026-10-19): a first page before the Workspace, first
+  in the top bar (`#/overview`, `pages/OverviewPage.tsx`). The normal tool
+  opens on it ("How REAL works": what REAL is for, one round step by step,
+  where things are); the study goes to it right after Start ("Overview":
+  what it is about, the system under test, what the participant will
+  do, what is recorded) - neutral wording, no hint of which failures matter or
+  that runs are pre-computed (a test checks). Both lead on to the Workspace.
+  Both also show the tool's architecture (the paper's Fig. 1, copied to
+  `ui/src/assets/real_architecture.png`, wider than the text, opens full size)
+  and a help-video card: its link comes from `VITE_HELP_VIDEO_URL`
+  (`src/config/help.ts`). The play button opens the video in a pop-up on the
+  page (YouTube links play in the embedded player, other links as a video
+  file); with no link set the button does nothing and no note is shown.
+- Study flow (owner, 2026-10-19): the study build has no Workspace. Its nav is
+  Overview, Requirement under Test, Rounds; Overview leads on to the
+  requirement page, and `#/` redirects there. The requirement page is called
+  "Requirement under Test" in the study (the participant reads and runs R0,
+  does not write it; the term matches "system under test" and review step 1);
+  the normal tool keeps "Write a requirement" (`src/study/labels.ts`). The
+  round still opens straight from the run, and from Rounds afterwards.
+- Requirement page (owner, 2026-10-19): titled "Requirements Compliance to
+  Validate" in both builds (replaces "Write a requirement" / "Requirement
+  under Test"). Under the title, an instructions box of short numbered steps,
+  like every page with steps (start, overview, review steps 1-5): normal tool
+  "load your requirement written in REAL-DSL (See manual), or write it";
+  study "a test has already been run on this requirement; its REAL-DSL is
+  shown, read only". The page does one thing: "Results for this requirement"
+  (MatchingRuns) is gone. Run test is centred under the page, as is every
+  page's way on (`components/ui/PageActions.tsx`): Continue on the overview,
+  Back / Next on the review steps (the floating round buttons are gone), Sign
+  on step 5 - all `size="lg"`, the action colour for the main one.
+- REAL-DSL editor (`components/requirement/DslEditor.tsx`,
+  `dsl/language.ts`; CodeMirror 6): keywords, MAINTAIN/ACHIEVE, operators,
+  numbers and comments coloured; each quoted string takes the colour of its
+  shape in the goal model (module / assumption / soft goal); a quantity is
+  bold only where it is compared; a word the grammar does not know is
+  underlined as an error. Completion offers only what the grammar allows next
+  (keywords with their empty string, then modules the simulator implements,
+  assumption and soft-goal quantities with unit and meaning, comparison
+  operators, the example wording), plus a whole-requirement skeleton
+  (Ctrl+Space on an empty editor). Hover notes on keywords, quantities and
+  modules; the parser's error and unimplemented modules marked on their line;
+  line numbers, status bar (parses / line / column), light and dark (kept per
+  browser), wrapped lines indented under their text. The study shows the
+  same editor read only. Colours pass AA in both themes
+  (`tests/styles/editorContrast.test.ts`). "Fill the gaps" stays as the
+  guided alternative; the editor is the default.
+- Manual: `docs/manual/real-dsl.md` (a CADP-style man page: NAME, SYNOPSIS,
+  ... SEE ALSO; every example checked against the parser), shown in the tool
+  in a pop-up with its sections listed ("See manual"). The Docker image copies
+  `docs/manual/` for the build.
+- Goal model legend: always shown, under the diagram, every shape named with
+  what it stands for and the REAL-DSL words that write it.
+- Same day (owner): the run button reads "Start Running Compliance Test" (its
+  panel is the "Compliance test" dialog); review step 2 is the "Test Execution
+  Report"; the manual is its own page, `#/manual` ("Manual" in the top bar,
+  both builds; "See manual" links to it): every section in order, the section
+  list beside it marking where you are, and a way on to the requirement page.
+  Still to come from the owner: a "best case" example on the Test Execution
+  Report (the scenario that optimizes for the failure), and one part of the
+  study build to remove (screenshot to follow).
+- Same day (owner): the manual keeps only how the language works; its
+  LIMITATIONS and FILES sections are gone, and the limitations are now the
+  work list `docs/design/real_dsl_robustness.md` (16 items, P1-P3, each with
+  a fix and a test). Study build: Start Running Compliance Test opens the
+  Test Execution Report at once - no run panel, no replayed job (logged as
+  `run_opened`, `direct: true`); this changes the brief's "runs look live".
+  Requirement page: the goal model is as tall as the editor (diagram centred,
+  legend at the bottom, a slightly wider column), and pointing at any part of
+  the REAL-DSL marks its box in the goal model and dims the rest (a string:
+  its own box; `assuming` / `ensuring`: all of them; `dsl/language.ts`
+  targetAt, tested on every clause).
+- Instructions (owner): fewer, fuller steps - two per box, each a complete
+  sentence or two rather than one clipped action per line - and one width for
+  every page's box (`Instructions page`: max-w-4xl, centred), on the overview,
+  the requirement page and review steps 1-5.
+- Layout rules (owner, 2026-10-19), for every page:
+  - An instruction box above each container, giving context, then an
+    explanation in the project's terms, then the call to action
+    (`Instructions` with `cta`).
+  - Optional actions (download, print, expand) are icons with a tooltip
+    (`IconButton`).
+  - The way on is a full button centred under the page: "See <next step> →"
+    in the review.
+  - Two containers sit side by side only when they show the same thing or
+    explain each other.
+- Review header: the whole workflow (Overview → Requirements Compliance to
+  Validate → steps 1-5; `components/review/WorkflowBar.tsx`, fed by each step
+  through `state/workflow.tsx`). Rounds, Manual and the participant ID are on
+  the right. The progress card and the "Run <id>" line are gone.
+- Test Execution Report, rebuilt to these rules:
+  - Summary counts, with an explanation box above them.
+  - "What failed in the requirement" beside "Where it failed": the REAL-DSL or
+    the goal model, each part marked failed (red) or broken (amber). Pointing
+    at a row outlines that part in both views.
+  - Test cases full width, with every column explained in the box above,
+    filter and expand/collapse icons, and download icons (CSV / RUNS / RAW).
+  - The recorded test case below the test cases.
+  - "See Failure Analysis" centred.
+- Requirement page: the pointer cursor over any part of the REAL-DSL that
+  has a box in the goal model.
+- Not yet applied to steps 1, 3, 4 and 5.
+- Simplified (owner, same day):
+  - Instruction boxes are white, with a green border and green text
+    (#667D01 on white, 4.7:1, checked by the contrast test).
+  - The header holds only the logo, Manual and the participant's ID. The
+    normal tool also keeps Workspace, where saved rounds are opened.
+  - The workflow is one quiet line under the header on every page:
+    Overview › Requirements Compliance to Validate › steps 1-5.
+    - The page you are on is underlined; the stops before it are ticked.
+    - The review steps lead to the review last opened.
+  - This replaces the workflow-in-header from earlier the same day.
+- Same day (owner): the workflow line takes the earlier progress-tracker
+  look: nodes on a track, each step's name and live status, done steps
+  ticked. It sits under the header on every page and scrolls with the page.
+- Test Execution Report, the worked example (`ScenarioReplay`,
+  `domain/bestScenario.ts`):
+  - It shows the round's best scenario, chosen by the test search's own rule
+    (`grid.py`: the test case with the lowest pass rate; the run's recorded
+    `worst_phenotype` wins when present), so "best" means best at exposing a
+    failure, the worst case for the car.
+  - It replays one run of that test case from its trace, top down. The car
+    sits at exactly the recorded distance from the pedestrian, with the 5 m
+    margin (red once breached), the detector cone (in-path detections) and
+    brake lights (any brake command), as the run summary counts them.
+  - Play, scrub, or jump to a moment: first brake, first detection, closest
+    approach.
+  - Runs can be switched to compare a failed run with one that passed.
+  - It replaces the "Recorded test case" box. The video sits beside the
+    replay when the round has one.
+- Why there was no video: study round C1 has no `best_scenario.mp4` and no
+  frames. It was assembled from several cluster jobs (`merged_from`) and the
+  recording run was never made. The page itself loads; the recording would
+  need one cluster run.
+- Palette study (an artifact): the five colours measured, a colour-blind
+  check, and three directions on a miniature of the report. Recommended
+  direction B: wheat for the workflow band only, a paler page, a green rule
+  and label on instructions with ink text, red for failure only. Waiting on
+  the owner.
+- Palette: direction B, "Calm canvas", chosen by the owner and applied:
+  - Wheat (#EAEAAA) only on the workflow band; the page is a paler mix of it
+    (#F5F5DC).
+  - Instruction boxes are white, with an olive 4px rule, an olive "What to
+    do" label and olive step numbers; the text is ink. Olive appears nowhere
+    else.
+  - Red (#AD1F07) means failure only; lime (#9EB200) is the one forward
+    button; wine (#8A1538, was maroon #610000) is the header only.
+  - New contrast checks cover the band and the box: the olive label on white
+    and the muted text on wheat.
+- Start Running Compliance Test (both builds) now opens the review at step 1,
+  The requirement under test, rather than at step 2, so the requirement is
+  read before its report (owner).
+- The worked example is its own page between steps 1 and 2
+  (`#/review/<id>/example`, `pages/review/StepExample.tsx`).
+  - The order is now step 1 → Example → step 2, and it is a stop (★) on the
+    workflow track.
+  - The page shows the round's best scenario with CARLA's camera recording
+    beside the trace replay.
+  - The replay is captioned as a schematic drawn from the recorded CARLA
+    trace, not camera footage.
+- CARLA video for merged study rounds:
+  - Each cluster job behind a round recorded its own worst scenario on
+    camera (`best_scenario.mp4`, MPEG-4 part 2, which no browser plays).
+  - `python -m scripts.evolve.video <run>` writes a playable H.264 copy
+    beside it.
+  - `make-study-site.mjs` (`copyRecordings`) copies a job's H.264 copy into
+    the site as `videos/<scenario id>.mp4`, matched by the job's
+    `worst_phenotype`. The study data folder is not changed.
+  - For C1 this is job 8ee4732c, which recorded exactly test case 6, the
+    round's best scenario. Its H.264 copy was made on 2026-10-19.
+- Open question (owner): the simulator comment says LR means "starts at the
+  left kerb, driver's view". In C1 test case 6 (LR), the CARLA camera and
+  the trace (lateral -3.3 m) both put the pedestrian on the car's right. The
+  report's column note repeats the comment and may be wrong.
+- Failure Analysis (owner, 2026-10-19):
+  - It opens on the Diagram (a new remembered-view key, so an older "tree"
+    does not win).
+  - The study build has no Tree view anywhere: Text and Diagram only.
+  - One layout for every view: the goal model full width, then the evidence
+    and the fixes side by side (both about the selected obstacle), then the
+    patterns. Each has an instruction box with context, explanation and a
+    call to action.
+  - The evidence shows CARLA's recording of the round's best scenario
+    (`hooks/useBestScenario.ts`, `components/evidence/CarlaVideo.tsx`, shared
+    with the example page), with a link to the worked example.
+  - Fixed: in the study build the diagram's obstacle boxes printed the
+    tool's verdict ("insufficient data"). The Tree default had hidden this
+    until now. The study build now shows no verdict in the boxes, and a test
+    covers it.
+  - What happens to each fix choice: waiting on the owner.
+- Fixes moved (owner): the Failure Analysis no longer has a Fixes container
+  (it only listed options; nothing could be done there), and its evidence
+  takes the full width. What a fix is now explained where the fix is chosen:
+  - Obstacle triage has an instruction box above each of its sections:
+    obstacles and fixes (the verdicts, then what a fix is: the six choices in
+    the study build, the five layers in the normal tool), scope, and domain
+    assumptions.
+  - The choice itself is unchanged: "Choose a fix" inside each accepted
+    obstacle.
+- Study triage and refinement (owner, 2026-10-19; `study/triage.ts`,
+  `study/StudyTriage.tsx`, `study/StudyRefinement.tsx`). An improvement of
+  steps 4-5, not a replacement of the loop: steps 1-3, R1's labelled
+  changes, re-judging and next rounds are unchanged.
+  - Step 4 asks one question per obstacle, world or car, as two plain
+    sentences.
+    - "The world explains these failures": the obstacle's own requirement
+      change (its `assuming` line, or its `ensuring` line where the analysis
+      proposes a soft goal) is added to R1 automatically.
+    - That option is unavailable, with the reason shown, when the suggestion
+      is about the car (`ego_speed <= 5`). Narrowing the car would define
+      its failures away.
+    - When R0 already says it, nothing is added.
+    - "The car is at fault": it remains a failure for step 5.
+    - No fix menu in step 4.
+  - Step 5 opens with the refined requirement, the added lines outlined, and
+    the failures counted against the car re-judged on the same runs
+    (`rejudge.ts`). When nothing changes it says why: free-text or
+    already-assumed lines are not measured.
+  - Beside it are the failures that remain, each with three choices:
+    - refine the requirement (in the participant's words);
+    - a real system failure, with a car fix (path-aware braking, larger
+      detector, both, or another change);
+    - not enough evidence, left for the next round.
+  - Stored with values `decisions.py validate()` accepts, with two extra
+    fields saying which path was taken (`explained_by`, `resolution`):
+
+    | Choice | Stored as |
+    |---|---|
+    | world | accept + requirement-layer mitigation |
+    | refine | accept + requirement mitigation (the participant's words) |
+    | system | accept + car fix |
+    | later | defer |
+
+    A test runs the Python validator on the result.
+  - The normal tool keeps the previous flow for now (study first, for the
+    deadline).
+- "What this means" (in the normal tool, "What the tool says") on the
+  obstacle and scope cards is no longer a dropdown. It is an always-visible
+  box in the same place on every card (`components/ui/MeaningBox.tsx`): a
+  pale wheat panel, a muted left rule, a quiet uppercase label, ink text.
+  It is neutral on purpose, because the olive rule belongs to the
+  instructions box: "what this means" and "what to do" stay visually
+  distinct.
+- Guided tour per page, in both tools (`tour/tours.ts`, `tour/useTour.ts`,
+  driver.js 1.9.0 pinned).
+  - Every page has its own short tour: the overview, the requirement page,
+    steps 1-5, the example, the manual, the workspace and rounds.
+  - Each stop is a part of the page found by its accessible name, so a stop
+    cannot drift from what it points at. Stops not on screen are skipped. A
+    test checks that every stop exists on its page.
+  - It starts once on a page's first visit (remembered per browser, per
+    build). The header's ? replays it.
+  - It is styled in Calm canvas: white, an olive rule, ink, lime Next. The
+    styles sit outside `@layer`, because the library's own stylesheet is
+    unlayered.
+  - In the study build, tour_started and tour_closed (stops seen) are
+    logged.
+  - It never starts on its own under test.
+  - Every stop but the last has "Skip tour": it ends the tour, counts as seen,
+    and is logged as skipped in the study build.
+- Workflow band (owner): no status line under the stops; each stop is
+  labelled with its page's title, in bold (the current one bolder), and
+  nothing more.
+- Triage in the normal tool too (owner, decision A, 2026-10-19). The study's
+  "world or car?" flow is now the only flow; the shared code moved to
+  `domain/triage.ts`, `components/review/TriageChoice.tsx` and
+  `pages/review/Refinement.tsx`.
+  - Step 4 has no rename, defer or fix menu.
+  - In the normal tool, a real system failure takes a fix from the
+    analysis's catalogue (data, model, system or test layer, each showing
+    its REAL-DSL edit) or the reviewer's own words.
+  - "Refine the requirement" records the reviewer's words and writes
+    nothing into R1 by itself; the edit is made in "Edit R1 before signing".
+    `scripts/analysis/refine.py` skips it the same way (test_refine.py).
+  - Existing decisions.json files and tool proposals are read into the new
+    flow (`triageOfSaved`):
+    - accept with the obstacle's own requirement change → world;
+    - accept with another fix → car (system, or refine);
+    - defer → car, next round;
+    - reject (the old "noise") → undecided.
+  - A pre-filled choice is confirmed by selecting it.
+  - The review test no longer compares against the Python tool's static
+    proposal files. It runs `refine.plan_changes` and `apply_changes` on the
+    decisions the flow writes, and requires the identical R1 and an empty
+    `validate()`.
+- DetectionTooLate (decision A + C):
+  - In step 4 the world option stays unavailable, with "Only the car can be
+    at fault here: the analysis's one world-side idea, ego_speed <= 5,
+    limits the car itself. You can still ask for it in Requirement
+    revision."
+  - In step 5, "Refine the requirement" offers it as a one-click
+    suggestion: "The car must travel at most 5 m/s where a pedestrian may
+    cross." (`carRequest`).
+- The REAL logo leads to each tool's first page (owner): the study build's
+  welcome page (`#/welcome`), the normal tool's Overview. During a study
+  session the welcome page reopens with the participant's ID and expertise,
+  and Continue, never a new session (that would lose the work). A changed
+  expertise is saved and logged (`expertise_changed`). Tested in
+  `tests/study/welcome.test.tsx`.
+- The normal tool has a welcome page too (owner, 2026-10-19;
+  `pages/WelcomePage.tsx`, `#/welcome`, its first page). It shows REAL,
+  large and centred, with the sub-headline; four statements of what REAL
+  does (write, test, understand the failures, refine); the expertise field;
+  and Get started → Overview.
+  - The expertise is kept in the browser (prefilled next time) and written
+    into decisions.json as `reviewer_expertise` when signing.
+  - Both tools now open on their welcome page, and the REAL logo leads
+    there in both.
+
+### 2026-10-20 - study dry run: two fixes
+- An out-of-scope scope item without a rule to invert asks for **the limit to state in
+  the requirement** in its own field (`limit`); that text, never the reason, becomes the
+  R1 assumption; signing waits for it; a limit about the car is refused.
+- In the study, playing the CARLA recording is logged (`video_played`, `video_paused`,
+  `video_ended`, with the time).
+- `ui/scripts/study/dry_run.mjs` walks the study build as one participant, start to
+  signing; run it before each batch of sessions.
+
+### 2026-10-20 - Run Compliance Test on R1 (normal tool)
+- After signing, Requirement revision offers **Run Compliance Test on R1 ▸** (R2, R3…
+  for later runs). The run records this round as its parent and the next round number.
+- When it finishes it opens on its **Test Execution Report**, with a banner: "Second run
+  of this requirement · This report tests R1, the requirement refined after the first
+  run", and a link to the first run's report; the count table already sets the two
+  side by side.
+
+### 2026-10-21 - test-defect candidates only when they apply
+- The three scenario-artefact candidates (the 8 m trigger, runs where the two never met,
+  the dead `distance` parameter) are defects of the v1 test scene. The study round ran
+  scene v2, where they were fixed, yet every report listed them and participants judged
+  and "fixed" them. Now a candidate is put to the reviewer only when it applies to the
+  run's own scene (`run_meta.scene`: a proximity trigger, scene version 1) and has
+  evidence in the run (a run where the two never met). One rule, `artefact_applies`, in
+  Python (`obstacles.py`, used by `decisions.from_analysis`) and in the tool
+  (`domain/decisions.ts`, used by `buildDecisions`); the stored reports are untouched.
+  On round C1 the triage lists the six obstacles and the four assumptions.
+
+### 2026-10-21 - the review image bundles round C1 beside the demo rounds
+- `examples/round_C1/<neutral id>/` is round C1 as presented to the study (never
+  re-analysed; `scripts/demo.py` still processes rounds 1 and 2 only), with the per-run
+  quantities the page re-judges with and the camera recording of its best scenario.
+  `Dockerfile.review` copies it next to the demo rounds.
+- The workspace index can carry a **note per round** (`make-workspace-index.mjs --note
+  <folder>=<text>`), shown on the Rounds page, the Workspace list and the requirement
+  page, so a bundled round says what it is. The index's label names the whole set.
+- Rounds of different test scenes are not compared by date: `previousOf` looks for the
+  nearest earlier round of the same scene version, and the link between two rounds of
+  different scenes says "Another test scene: not compared" instead of carrying the
+  earlier round's changes. A recorded parent always wins.
+- `workspaceFiles.mjs` now lists `videos/*.mp4` and `study_quantities.json`, so a static
+  workspace carries them (the study site added them separately; it dedupes now).
+- Found on the way: an image built on a machine whose copies are mode 640 served 403 for
+  every such file (`COPY` keeps modes; nginx's worker is not the owner), while the CI build
+  from a checkout never had it (git resets modes). `Dockerfile.review` now `chmod -R a+rX`
+  the runs in the build stage, so a local build equals the CI build. The check that caught
+  it: every indexed file HEAD-fetched, then Workspace, Rounds and all six pages of every
+  round walked with no `role=alert`, no warning notice and no "Not in the chain" line.
+- The "Bundled example" card no longer counts the rounds (the dev build serves two, the
+  image three); the index label under it names the set.
+

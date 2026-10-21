@@ -1,4 +1,5 @@
 import type { AnalysisReport, Obstacle, Operation } from '@/services/schemas';
+import { STUDY } from '@/study/config';
 
 import { evidenceText } from './decisions';
 import { obstacleNodes, type GoalModel, type ModelNode } from './goalModel';
@@ -171,7 +172,8 @@ function obstacleBox(
   status: string | null,
 ): Box {
   const verdict = `${VERDICT_WORDS[o.verdict] ?? o.verdict}${status ? ` · ${status}` : ''}`;
-  const counts = `${verdict} · ${evidenceText(o)}`;
+  // the study build shows the evidence only, not the tool's verdict
+  const counts = STUDY ? evidenceText(o) : `${verdict} · ${evidenceText(o)}`;
   return {
     id: `obstacle.${o.id}`,
     kind: 'obstacle',
@@ -180,7 +182,12 @@ function obstacleBox(
     w,
     h,
     lines: fitText(o.id, w - 2 * SLANT - 8, 1),
-    note: fitText(verdict, w - 2 * SLANT - 4, 1, 6.2)[0],
+    // the study build: no verdict in the box either (brief 4.4)
+    note: STUDY
+      ? status
+        ? fitText(status, w - 2 * SLANT - 4, 1, 6.2)[0]
+        : undefined
+      : fitText(verdict, w - 2 * SLANT - 4, 1, 6.2)[0],
     detail: fitText(evidenceText(o), w - 2 * SLANT - 4, 1, 6.2)[0],
     title: `${o.id} - ${counts}`,
     obstacle: o,

@@ -3,6 +3,7 @@
  * Write the index.json a statically served workspace needs.
  *
  *   node scripts/make-workspace-index.mjs <workspace folder> [--out <folder>] [--label "..."] [--example]
+ *        [--note <round folder>=<text>]...   a line about that round, shown wherever it is listed
  *
  * The workspace folder holds one sub-folder per round (each with a
  * run_meta.json). With --out, the rounds are copied there (only the files
@@ -13,29 +14,20 @@
 import { cpSync, existsSync, mkdirSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
-const TOP_LEVEL = [
-  'run_meta.json',
-  'analysis_report.json',
-  'analysis_report.md',
-  'cluster_map.json',
-  'simulations.csv',
-  'scenarios.csv',
-  'decisions.json',
-  'R0.dsl',
-  'R1.dsl',
-  'requirement_diff.md',
-  'best_scenario_h264.mp4',
-  'best_scenario.mp4',
-];
+import { listRound } from './workspaceFiles.mjs';
 
 function parseArgs(argv) {
-  const args = { out: null, label: null, example: false, workspace: null };
+  const args = { out: null, label: null, example: false, workspace: null, notes: {} };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--out') args.out = argv[++i];
     else if (a === '--label') args.label = argv[++i];
     else if (a === '--example') args.example = true;
-    else if (!args.workspace) args.workspace = a;
+    else if (a === '--note') {
+      const v = argv[++i] ?? '';
+      const k = v.indexOf('=');
+      if (k > 0) args.notes[v.slice(0, k)] = v.slice(k + 1);
+    } else if (!args.workspace) args.workspace = a;
   }
   if (!args.workspace) {
     console.error(
@@ -44,27 +36,6 @@ function parseArgs(argv) {
     process.exit(2);
   }
   return args;
-}
-
-function listRound(dir) {
-  const files = [];
-  for (const name of readdirSync(dir)) {
-    const full = join(dir, name);
-    const st = statSync(full);
-    if (st.isFile() && TOP_LEVEL.includes(name)) files.push(name);
-    if (st.isDirectory() && name === 'traces') {
-      for (const t of readdirSync(full)) if (t.endsWith('.json')) files.push(`traces/${t}`);
-    }
-    if (st.isDirectory() && name === 'frames') {
-      for (const sensor of readdirSync(full)) {
-        const sensorDir = join(full, sensor);
-        if (!statSync(sensorDir).isDirectory()) continue;
-        for (const f of readdirSync(sensorDir))
-          if (f.endsWith('.png')) files.push(`frames/${sensor}/${f}`);
-      }
-    }
-  }
-  return files.sort();
 }
 
 const args = parseArgs(process.argv.slice(2));
@@ -80,7 +51,9 @@ for (const name of readdirSync(workspace)) {
     continue;
   }
   const files = listRound(dir);
-  rounds.push({ dir: name, files });
+  rounds.push(
+    args.notes[name] ? { dir: name, files, note: args.notes[name] } : { dir: name, files },
+  );
   if (out !== workspace) {
     mkdirSync(join(out, name), { recursive: true });
     for (const f of files) {

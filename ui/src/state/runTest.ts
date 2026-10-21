@@ -16,9 +16,28 @@ import {
 } from '@/services/authoring';
 import type { FileSource } from '@/services/workspace';
 import { reviewHash } from '@/state/route';
+import { STUDY } from '@/study/config';
+import { logEvent } from '@/study/log';
+import { replayApi } from '@/study/replay';
 
 /**
- * Run Test, from the requirement being written to its Test Execution Result,
+ * Where the cluster calls go: the live connection through the helper, or -
+ * in the study build - a replay of the pre-computed rounds that answers the
+ * same calls with the same shapes (src/study/replay.ts).
+ */
+const live = {
+  pollMs: 30_000,
+  checkLaptop,
+  checkCluster,
+  submitRun,
+  refreshPartial,
+  fetchJob,
+  projectRunsSource: projectRunsSource as () => Promise<FileSource | null>,
+};
+const api = STUDY ? replayApi : live;
+
+/**
+ * Run Test, from the requirement being written to its Test Execution Report,
  * in three steps the panel shows: choose what to run, check it (on this
  * machine: modules and scenes; over ssh: the session and the cluster's code),
  * run it. Nothing reaches the cluster before every check has passed and the
@@ -60,7 +79,8 @@ export type RunTestState =
   | { phase: 'error'; message: string; kind?: string; details?: RefusalDetails; job?: Job };
 
 const KEY = 'real-av.run-test.job';
-const POLL_MS = 30_000;
+/** The review step a followed job's results open on (1, or 2 for a next run): kept across a reload. */
+const LAND_KEY = 'real-av.run-test.land';
 const ENDED = [
   'COMPLETED',
   'FAILED',
@@ -81,10 +101,12 @@ function remembered(): string | null {
   }
 }
 
-function remember(jobId: string | null): void {
+function remember(jobId: string | null, landOn?: 1 | 2): void {
   try {
     if (jobId) window.localStorage.setItem(KEY, jobId);
     else window.localStorage.removeItem(KEY);
+    if (jobId && landOn) window.localStorage.setItem(LAND_KEY, String(landOn));
+    else if (!jobId) window.localStorage.removeItem(LAND_KEY);
   } catch {
     // the job is still followed while the page stays open
   }
@@ -112,10 +134,16 @@ export function useRunTest({
   text,
   fileName,
   open,
+  landOn,
+  provenance,
 }: {
   text: string;
   fileName: string;
   open: (source: FileSource) => Promise<void>;
+  /** The review step the results open on: 1 (the requirement under test) by default; 2 (its report) for a next run. */
+  landOn?: 1 | 2;
+  /** A next run: the round it follows from, recorded in its run_meta.json. */
+  provenance?: { parent_run_id: string; round: number };
 }) {
   const [state, setState] = useState<RunTestState>({ phase: 'idle' });
   const [shown, setShown] = useState(false);
@@ -124,7 +152,7 @@ export function useRunTest({
   const openRun = useCallback(
     async (runId: string) => {
       setState({ phase: 'opening', runId });
-      const source = await projectRunsSource();
+      const source = await api.projectRunsSource();
       if (!source) {
         setState({
           phase: 'error',
@@ -134,13 +162,37 @@ export function useRunTest({
       }
       await open(source);
       setShown(false);
-      window.location.hash = reviewHash(runId, 2);
+      logEvent({ screen: 'run', event: 'result_opened', target: runId });
+      // the review starts where it is read from: the requirement under test, then its report;
+      // a next run opens straight on its report (step 2)
+      let step = landOn;
+      if (!step) {
+        try {
+          step = window.localStorage.getItem(LAND_KEY) === '2' ? 2 : 1;
+          window.localStorage.removeItem(LAND_KEY);
+        } catch {
+          step = 1;
+        }
+      }
+      window.location.hash = reviewHash(runId, step);
     },
-    [open],
+    [open, landOn],
   );
 
   /** Run test: open the panel; a job already followed is shown, otherwise step 1. */
   const start = useCallback(async () => {
+    logEvent({ screen: 'author', event: 'run_test_opened' });
+    // the study: the test has already run - straight to its Test Execution Report
+    if (STUDY) {
+      setState({ phase: 'opening', runId: '' });
+      const runId = await replayApi.openDirect(text);
+      if (runId) await openRun(runId);
+      else {
+        setShown(true);
+        setState({ phase: 'error', message: 'no saved run exists for this requirement' });
+      }
+      return;
+    }
     setShown(true);
     if (['tracking', 'fetching', 'ended'].includes(state.phase)) return;
     setState({ phase: 'looking' });
@@ -154,7 +206,7 @@ export function useRunTest({
     } catch {
       setState({ phase: 'choose', existing: null }); // without the run list, running still works
     }
-  }, [text, state.phase]);
+  }, [text, state.phase, openRun]);
 
   /** Step 2: the checks on this machine, then over ssh; Submit waits for all of them. */
   const check = useCallback(
@@ -168,7 +220,7 @@ export function useRunTest({
         setState({ phase, existing, options, checks, failure });
       put('checking');
       try {
-        const laptop = await checkLaptop(text, options);
+        const laptop = await api.checkLaptop(text, options);
         if (!laptop.ok) {
           const failure: Failure = {
             message: laptop.message ?? 'the check on this machine failed',
@@ -198,7 +250,7 @@ export function useRunTest({
         return;
       }
       try {
-        await checkCluster();
+        await api.checkCluster();
         checks = mark(mark(checks, 'session', 'ok'), 'code', 'ok');
         put('ready');
       } catch (e) {
@@ -222,20 +274,20 @@ export function useRunTest({
     if (state.phase !== 'ready' || state.failure) return;
     setState({ ...state, phase: 'submitting' });
     try {
-      const job = await submitRun(text, name, state.options);
-      remember(job.job_id);
+      const job = await api.submitRun(text, name, { ...state.options, ...provenance });
+      remember(job.job_id, landOn);
       setState({ phase: 'tracking', job });
     } catch (e) {
       setState({ ...state, phase: 'ready', failure: asFailure(e) });
     }
-  }, [text, name, state]);
+  }, [text, name, state, provenance, landOn]);
 
   const follow = useCallback(
     async (jobId: string) => {
       try {
         // the helper pulls and analyses the results so far at most every 5 minutes;
         // otherwise this is the job's status
-        const job = await refreshPartial(jobId);
+        const job = await api.refreshPartial(jobId);
         if (job.fetched) {
           remember(null);
           if (job.run_id && job.complete) await openRun(job.run_id);
@@ -243,7 +295,7 @@ export function useRunTest({
         } else if (ENDED.includes(job.state)) {
           // every ended job is brought back: a whole run, an incomplete one (labelled), or its log
           setState({ phase: 'fetching', job });
-          const back = await fetchJob(jobId);
+          const back = await api.fetchJob(jobId);
           remember(null);
           if (back.run_id && back.complete) await openRun(back.run_id);
           else setState({ phase: 'ended', job: back });
@@ -274,7 +326,7 @@ export function useRunTest({
   // poll while a job runs
   useEffect(() => {
     if (state.phase !== 'tracking') return;
-    const t = window.setTimeout(() => void follow(state.job.job_id), POLL_MS);
+    const t = window.setTimeout(() => void follow(state.job.job_id), api.pollMs);
     return () => window.clearTimeout(t);
   }, [state, follow]);
 
@@ -301,12 +353,14 @@ export function useRunTest({
     },
     /** the toolbar's words while a job is followed */
     running:
-      state.phase === 'tracking' || state.phase === 'fetching'
-        ? job?.progress
-          ? `Test running · ${job.progress.done} of ${job.progress.total}`
-          : job?.state === 'PENDING'
-            ? 'Test queued'
-            : 'Test running'
-        : null,
+      state.phase === 'opening'
+        ? 'Opening the review…'
+        : state.phase === 'tracking' || state.phase === 'fetching'
+          ? job?.progress
+            ? `Test running · ${job.progress.done} of ${job.progress.total}`
+            : job?.state === 'PENDING'
+              ? 'Test queued'
+              : 'Test running'
+          : null,
   };
 }

@@ -43,7 +43,22 @@ def test_plan_changes_labels(tmp_path):
     r = next(c for c in changes if c["kind"] == "R")
     assert r["clause"] == "ensuring" and "resumes within 10 s" in r["item"]
     t_in_scope = [c for c in changes if c["kind"] == "T" and c["layer"] == "scope"]
-    assert len(t_in_scope) == 2   # the two artefacts marked in_scope -> drop-rule notes
+    # the one other artefact of this (v1, no no-encounter run) scene, marked in_scope -> a drop-rule note
+    assert len(t_in_scope) == 1
+
+
+def test_a_refine_resolution_records_words_but_adds_no_change(tmp_path):
+    """Triage (ui/src/study/triage.ts): "refine the requirement" keeps the
+    reviewer's words in decisions.json; R1 is edited by hand, so the words
+    never turn into an `assuming` line."""
+    run, doc = _decided_run(tmp_path)
+    doc["obstacles"]["StandoffUnnecessaryStop"].update(
+        explained_by="car", resolution="refine",
+        mitigation={"layer": "requirement", "action": "ask the car to move on once clear"})
+    changes = refine.plan_changes(doc)
+    assert not any(c["from"] == "StandoffUnnecessaryStop" for c in changes)
+    assert not any("ask the car to move on" in c["text"] for c in changes)
+    assert decisions.validate(doc) == []
 
 
 def test_apply_changes_edits_text_and_parses():
@@ -119,4 +134,23 @@ def test_change_for_is_the_single_source_of_plan_changes(tmp_path):
     assert refine.rule_as_assumption(None) is None
     assert refine.scope_change("rule:x", {"verdict": "in_scope"})["layer"] == "scope"
     assert refine.scope_change("rule:x", {"verdict": "out_of_scope", "reason": "too dark"})["item"] == "too dark"
+    # the stated limit, not the reason, goes into R1 once the limit has its own field
+    assert refine.scope_change("artefact:a", {"verdict": "out_of_scope", "limit": "the ego approaches the crossing",
+                                              "reason": "because I think so"})["item"] == "the ego approaches the crossing"
     assert refine.scope_change("rule:x", {"verdict": None}) is None
+
+
+def test_a_study_car_choice_names_its_module_swaps():
+    """The study records a chosen car (mitigation.choice); refine derives the same R1 the
+    study tool writes (ui/src/study/car.ts), not the obstacle x layer table's swap."""
+    doc = {"obstacles": {
+        "DetectionTooLate": {"verdict": "accept", "resolution": "system",
+                             "mitigation": {"layer": "system", "action": "a larger detector",
+                                            "choice": "car_larger_detector"}},
+        "PedestrianSizeTooSmall": {"verdict": "accept", "resolution": "system",
+                                   "mitigation": {"layer": "system", "action": "both", "choice": "car_both"}}},
+        "scope": {}}
+    texts = [c["text"] for c in refine.plan_changes(doc)]
+    assert texts == ['"Detect Pedestrian" performed by "yolov5m"', '"Apply Brakes" performed by "path_aware_braking"']
+    larger = refine.plan_changes(doc)[0]
+    assert larger["from"] == "DetectionTooLate, PedestrianSizeTooSmall"

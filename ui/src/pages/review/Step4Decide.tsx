@@ -6,11 +6,13 @@ import {
 import { prefillWords } from '@/components/review/VerdictControl';
 import { Disclosure } from '@/components/ui/Disclosure';
 import { TextAreaField } from '@/components/ui/Field';
+import { Instructions } from '@/components/ui/Instructions';
 import { Notice } from '@/components/ui/Notice';
 import { belowBarWords, bySupport, isSupported } from '@/domain/support';
 import type { AnalysisReport } from '@/services/schemas';
 import type { Draft, DraftAction } from '@/state/draft';
 import { unconfirmedCount } from '@/state/draft';
+import { STUDY } from '@/study/config';
 
 /** Step 4: a verdict per obstacle, per scope item and per domain assumption. */
 export function Step4Decide({
@@ -18,15 +20,21 @@ export function Step4Decide({
   previous,
   draft,
   dispatch,
+  r0 = '',
 }: {
+  /** the requirement as run (the study's triage shows what is already in it) */
+  r0?: string;
   report: AnalysisReport;
   previous: AnalysisReport | null;
   draft: Draft;
   dispatch: (action: DraftAction) => void;
 }) {
-  const obstacles = [...report.obstacles].sort(bySupport);
-  const above = obstacles.filter(isSupported);
-  const below = obstacles.filter((o) => !isSupported(o));
+  // the study build: one list, A to Z - nothing says which obstacles the tool supports
+  const obstacles = [...report.obstacles].sort((a, b) =>
+    STUDY ? a.id.localeCompare(b.id) : bySupport(a, b),
+  );
+  const above = STUDY ? obstacles : obstacles.filter(isSupported);
+  const below = STUDY ? [] : obstacles.filter((o) => !isSupported(o));
   const belowOpen = below.filter((o) => !draft.doc.obstacles[o.id]?.verdict).length;
   const card = (o: (typeof obstacles)[number]) => (
     <ObstacleDecisionCard
@@ -36,6 +44,7 @@ export function Step4Decide({
       dispatch={dispatch}
       hasPrevious={Boolean(previous)}
       sampling={report.sampling}
+      r0={r0}
     />
   );
   const scopeIds = Object.keys(draft.doc.scope);
@@ -44,8 +53,9 @@ export function Step4Decide({
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-10">
       {draft.prefill ? (
-        <Notice tone="tool" title="Pre-filled verdicts">
-          {prefillWords(draft.prefill)}. {unconfirmed} still to confirm or change.
+        <Notice tone="tool" title="Pre-filled decisions">
+          {prefillWords(draft.prefill)}. Select a choice on each card to confirm or change it;{' '}
+          {unconfirmed} still to confirm.
         </Notice>
       ) : null}
       {draft.signed ? (
@@ -55,8 +65,24 @@ export function Step4Decide({
       ) : null}
 
       <section className="flex flex-col gap-4" aria-labelledby="obstacles-title">
+        <Instructions cta="Decide world or car for each obstacle, and give your reason in your own words.">
+          <p>
+            Each obstacle is a group of failed runs that share a likely cause. Decide, for each one,
+            whether <strong>the world explains these failures</strong>, in which case the obstacle’s
+            domain assumption (or soft goal) is added to the refined requirement for you, or whether{' '}
+            <strong>the car is at fault</strong>, in which case it remains a failure.
+          </p>
+          <p className="mt-2">
+            You decide what to do with the failures that remain in the next step, Requirement
+            revision: refine the requirement, confirm a real system failure and choose a fix, or
+            leave it for the next round.
+          </p>
+        </Instructions>
         <h2 id="obstacles-title" className="text-lg">
-          Obstacles <span className="text-sm font-normal text-text-muted">in order of support</span>
+          Obstacles{' '}
+          {STUDY ? null : (
+            <span className="text-sm font-normal text-text-muted">in order of support</span>
+          )}
         </h2>
         {obstacles.length === 0 ? (
           <p className="text-sm text-text-muted">The analysis lists no obstacles.</p>
@@ -90,6 +116,16 @@ export function Step4Decide({
       </section>
 
       <section className="flex flex-col gap-4" aria-labelledby="scope-title">
+        <Instructions cta="Give each item a verdict and a short reason.">
+          <p>
+            Some runs were set aside by a scope rule, or flagged as possible test artefacts, so they
+            were not counted. Decide whether each is right. <strong>Out of scope</strong>: the
+            situation is genuinely outside what the car must handle, and the requirement will say
+            so. <strong>In scope</strong>: the situation is realistic, so the rule is dropped and
+            those runs count. <strong>Scenario defect</strong>: the test itself was wrong and must
+            be fixed and measured again.
+          </p>
+        </Instructions>
         <h2 id="scope-title" className="text-lg">
           Scope{' '}
           <span className="text-sm font-normal text-text-muted">
@@ -105,6 +141,14 @@ export function Step4Decide({
       </section>
 
       <section className="flex flex-col gap-4" aria-labelledby="assumptions-title">
+        <Instructions cta="Decide each assumption and give your reason; add any new assumption about the world, never about the car.">
+          <p>
+            Domain assumptions say what must be true of the world for a failure to count against the
+            car. <strong>Keep</strong> an assumption as written, <strong>tighten</strong> it to
+            cover less or <strong>loosen</strong> it to cover more (giving the new text in either
+            case), or <strong>drop</strong> it.
+          </p>
+        </Instructions>
         <h2 id="assumptions-title" className="text-lg">
           Domain assumptions{' '}
           <span className="text-sm font-normal text-text-muted">

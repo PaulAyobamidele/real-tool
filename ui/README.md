@@ -70,10 +70,19 @@ their own group and never counted as passes.
 
 ## Writing a requirement
 
-_Write a requirement_ (top bar, or the card on the Workspace screen) works
-like Overleaf: the requirement on the left, its KAOS goal model on the
-right, redrawn as you type. The left side is the DSL itself with gaps to
-fill - the fixed words (`MAINTAIN`, `by`, `using`, `operationalized as`, ...)
+_Requirements Compliance to Validate_ (top bar) works like Overleaf: the
+requirement on the left, its KAOS goal model on the right (with its legend),
+redrawn as you type and as tall as the editor, and _Start Running Compliance
+Test_ centred below. Pointing at any part of the REAL-DSL marks its box in the
+goal model. (In the study build the button opens the Test Execution Report at
+once: no run panel.) The left side opens on the
+**REAL-DSL editor**: colours, completion that follows the grammar
+(Ctrl+Space; on an empty editor it offers a whole requirement to fill), hover
+help, the parser's errors marked on their line, light or dark. The language
+is described in `docs/manual/real-dsl.md`, also the tool's Manual page
+(`#/manual`; "See manual" links to it); its known limitations are the work list
+`docs/design/real_dsl_robustness.md`. The guided alternative, _Fill the gaps_, is the DSL itself with gaps
+to fill - the fixed words (`MAINTAIN`, `by`, `using`, `operationalized as`, ...)
 are text, free gaps (names, inputs, outputs, the scenario sentence,
 free-text assumptions and soft goals) take suggestions from every
 `docs/examples/*.dsl` and from what is already written (the perception
@@ -151,6 +160,94 @@ goes text -> parser -> form -> text -> parser with the text unchanged apart
 from whitespace and comments and the two goal trees equal
 (`tests/contract/authoring.test.ts`).
 
+## Welcome
+
+Both builds open on a welcome page (`#/welcome`, the REAL logo leads back
+there). It shows REAL, what it does, and the user's expertise. The normal tool
+keeps the expertise in the browser and records it as `reviewer_expertise` in
+`decisions.json` on signing. The study build's welcome page starts, or
+continues, the participant's session.
+
+## Overview
+
+The first page (`#/overview`), first in the top bar: the normal tool opens on
+"How REAL works"; the study build shows "Overview" right after the start
+screen. Both texts are in `src/pages/OverviewPage.tsx`. Both show the
+architecture figure (`src/assets/real_architecture.png`, a copy of the paper's
+Fig. 1) and a help-video card: set `VITE_HELP_VIDEO_URL` at build time (or the
+default in `src/config/help.ts`). The video plays in a pop-up on the page.
+
+In the study build there is no Workspace: the nav is Overview, Requirement
+under Test, Rounds, and `#/` leads to the requirement page.
+
+## Study mode
+
+To publish: `npm run publish:study` (or `-- <remote>`) builds the site and,
+after asking, force-pushes only the built site to the remote's `gh-pages`
+branch (one commit, so the round data never piles up in history); then
+GitHub -> Settings -> Pages -> Deploy from branch -> gh-pages. The build
+records its code version (`git describe --dirty`) in every participant's
+`decisions.json`. To try a session again in the same browser, use a private
+window (a finished session shows only its thank-you screen).
+Acceptance: `artifacts/cluster_checks/2026-10-18_study_mode_acceptance.md`.
+
+A separate build for the user study: `npm run build:study` (output in
+`dist-study/`; `npm run dev:study` while developing, after `npm run
+study:data`). `study:data` copies the study rounds from `../artifacts/study`
+(read only) into `study-public/`: the round participants review in
+`workspace/`, the pre-computed follow-ups (other cars, with their reports
+re-judged against the study requirement) in `followups/`; only the files the
+interface reads, each round under a fixed neutral run id (the copy's
+`run_meta.json` keeps `study_round` for the record), and a round carrying
+`decisions.json` is refused. Both folders are git-ignored. It opens on
+a start screen (REAL and its sub-headline, the participant's expertise in
+their own words, and a random anonymous ID, shown in the header from then on) and then gives the normal tool's pages; the
+study's runs will be replayed from pre-computed rounds, the tool's verdicts
+hidden, every action logged (`log.jsonl`) and everything returned as one zip
+per participant. In the study build the Workspace shows only the test
+rounds (no opening, dropping or example), a round with `decisions.json` is
+refused, and a report's banner (a researcher's note) is not shown.
+Rounds appear as in the real tool: none until the participant has run the
+requirement. _Write a requirement_ shows the requirement under test read only
+(its menus and check come from `study-public/study-authoring/`, made at build
+time by the project's own Python - there is no helper on the page; the
+researchers' `#` comment lines are dropped from the copy). _Run test_ is the
+normal panel, replayed: only the saved full test (288 scenarios × 3 runs),
+the checks tick, a job number, queue, node and scenario n of 288 over about a
+minute, then the saved round is revealed and opened at its Test Execution
+Result (`src/study/replay.ts`; every replay is logged as one; no elapsed time
+is shown). The review hides the tool's judgement everywhere - verdict chips
+and colours, "supported / below the bar", the support order, assumption
+verdicts, round-to-round status - and lists the obstacles A to Z with all
+their evidence; each accepted obstacle needs one choice from the study menu
+(`src/study/menu.ts`: three car changes, the requirement, a domain
+assumption, something else), which also replaces the catalogue's fixes on
+the Failure Analysis step. Signing (step 5): the participant's anonymous ID
+signs; R1 is written by the tool only (no hand edits) - the car changes chosen
+add up to one of the four saved cars (`src/study/car.ts`), changes in the
+participant's own words are recorded in `decisions.json`, not in R1; signing
+is refused, with the reason logged, if R1's car has no saved run on the site
+or an assumption text has a double quote. `decisions.json` gets a `study`
+block (participant, profession, times, build, round, car, verdicts hidden,
+menu offered); everything - with `log.jsonl` (every decision with old and new
+value, every click that opens evidence, every screen) - downloads as one
+`study_<ID>.zip` (`src/study/zip.ts`, no dependency). **The session ends at
+signing**: the participant's first refinement is what the study needs, and
+R1 is run on the cluster afterwards by the researchers; from then on the page
+shows only a thank-you screen with the zip to download again (also after a
+reload). A revised requirement
+can be re-judged on the same simulations in the page (`src/study/rejudge.ts`):
+the build exports each round's per-simulation quantities with the project's
+own Python (`scripts/study_quantities.py` -> `study_quantities.json`, about
+1 MB per round), and the page ports the rest of `report.py`'s judging (the
+assumptions, the soft goals, the counts the Test Execution Result shows). A
+contract test (`tests/study/rejudge.contract.test.ts`) compares it with
+`analyse(run, requirement=R1)`; `REJUDGE_RUN=<run>` runs it on another run.
+Code:
+`src/study/`, `scripts/make-study-site.mjs`. Design and decisions:
+`docs/design/study_mode_brief.md`, `docs/design/review_ui.md`, Notes 8.54.
+The normal build is unaffected.
+
 ## Files
 
 | Read                                                                                                                                                                                                                                 | Written on signing                                          |
@@ -226,16 +323,20 @@ src/
 ```
 
 Design tokens are the only place colours, type and spacing are defined.
-`src/styles/tokens.css` carries the set, in an Apple-like style: cool grey
-neutrals (#F5F5F7 page, white cards, #1D1D1F text), one raspberry accent
-(`human`, #C8175D) used sparingly for the current step, the primary action,
-links and the reviewer's own verdicts; `fail`, `pass`, `set-aside`,
-`caution` and the four change kinds reserved for meaning (`fail` is a warm
-red, #CC2F12, so it never reads as the accent); a desktop-app
+`src/styles/tokens.css` carries the set. Colour is a five-colour palette
+with one job per colour (2026-10-19): #EAEAAA page background, white cards,
+#172033 text; #667D01 with white text only for the instructions box
+(`Instructions`), so it is always what to read first; #8A1538 (wine) the header,
+the same on every page; #9EB200 the primary button, with dark text; links,
+selection, focus and "passed" in the dark text colour, marked by an
+underline, a tick or a border; #AD1F07 "failed" and errors. `set-aside`, `caution` and the four change kinds keep their own
+colours; every meaning also has a word. Light only.
+`tests/styles/contrast.test.ts` checks every text/background pair against
+WCAG 2.2 AA. A desktop-app
 type scale (12 / 13 / 14 px body, 16 px card titles, 26 to 32 px page
 titles); 6 / 10 / 16 px radii; translucent `fill` greys for quiet controls;
-150 / 200 / 280 ms motion; a dark-mode override. The look is calm and
-compact: one frosted top bar (screens, and the five steps inside a review
+150 / 200 / 280 ms motion. The look is calm and
+compact: one top bar (screens, and the five steps inside a review
 as a segmented control), cards lifted by a hairline and a soft shadow
 instead of borders, borderless tinted tags, capsule buttons, verdicts as a
 row of tiles (the chosen one in the `human` colour), explanations folded
@@ -254,4 +355,6 @@ doing one job: `zod` (schemas that validate the loaded files and give the
 types), `papaparse` (CSV), `diff` (line diffs for the side-by-side view and
 `requirement_diff.md`), `@radix-ui/react-radio-group` (accessible radio
 groups for verdicts). The goal tree follows the WAI-ARIA tree pattern and is
-implemented here, since Radix has no tree primitive.
+implemented here, since Radix has no tree primitive. The REAL-DSL editor is
+CodeMirror 6 (`@codemirror/*`, `@lezer/highlight`); the manual is rendered
+with `marked`.

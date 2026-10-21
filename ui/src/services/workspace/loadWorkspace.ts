@@ -13,6 +13,8 @@ import {
   type ClusterMap,
 } from '@/services/schemas';
 
+import { STUDY } from '@/study/config';
+
 import { joinPath, KNOWN_FILES, type FileSource } from './fileSource';
 
 /**
@@ -49,7 +51,20 @@ function asFileError(error: unknown, file: string): FileError {
   return new FileError('unreadable', file, error instanceof Error ? error.message : String(error));
 }
 
-async function loadRound(source: FileSource, dir: string, files: string[]): Promise<RoundSummary> {
+async function loadRound(
+  source: FileSource,
+  dir: string,
+  files: string[],
+  note: string | null = null,
+): Promise<RoundSummary> {
+  if (STUDY && files.includes(KNOWN_FILES.decisions)) {
+    // a study session starts with no decisions: nothing may be pre-filled (study brief 4.4)
+    throw new FileError(
+      'unreadable',
+      joinPath(dir, KNOWN_FILES.decisions),
+      'this round carries decisions.json; a study session starts with no decisions',
+    );
+  }
   const metaFile = joinPath(dir, KNOWN_FILES.runMeta);
   const meta = parseWithSchema(await source.readText(metaFile), runMetaSchema, metaFile);
 
@@ -109,6 +124,7 @@ async function loadRound(source: FileSource, dir: string, files: string[]): Prom
     decisionsError,
     requirementText,
     files,
+    note,
   };
 }
 
@@ -118,7 +134,7 @@ export async function loadWorkspace(source: FileSource): Promise<Workspace> {
   const broken: BrokenRound[] = [];
   for (const entry of listing.rounds) {
     try {
-      rounds.push(await loadRound(source, entry.dir, entry.files));
+      rounds.push(await loadRound(source, entry.dir, entry.files, entry.note ?? null));
     } catch (error) {
       broken.push({
         dir: entry.dir,

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 
+import { Instructions } from '@/components/ui/Instructions';
 import { RunOptionsForm } from '@/components/requirement/RunOptionsForm';
 import { Button } from '@/components/ui/Button';
 import { Disclosure } from '@/components/ui/Disclosure';
@@ -14,6 +15,8 @@ import {
   type ScenarioList,
 } from '@/services/authoring';
 import type { CheckState, Failure, RunTestState } from '@/state/runTest';
+import { STUDY } from '@/study/config';
+import { RUNS_PER_SCENARIO, SCENARIOS, TIME_LIMIT } from '@/study/replay';
 import { cx, displayDate } from '@/utils/format';
 
 const SHOWN = 12;
@@ -51,11 +54,13 @@ export function RunDialog({
   fileName,
   onFileName,
   actions,
+  title = 'Run this requirement on the cluster',
 }: {
   state: RunTestState;
   fileName: string;
   onFileName: (name: string) => void;
   actions: Actions;
+  title?: string;
 }) {
   const box = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -71,11 +76,11 @@ export function RunDialog({
         ref={box}
         role="dialog"
         aria-modal="true"
-        aria-label="Run test"
+        aria-label="Compliance test"
         className="card flex w-full max-w-2xl flex-col gap-4 p-5 shadow-xl"
       >
         <div className="flex items-start justify-between gap-4">
-          <h2 className="text-lg font-semibold">Run this requirement on the cluster</h2>
+          <h2 className="text-lg font-semibold">{title}</h2>
           <button
             type="button"
             aria-label="Close"
@@ -136,6 +141,7 @@ function Choose({
     picked.current = v;
   };
   useEffect(() => {
+    if (STUDY) return; // the study replays the saved full test only: no lists to offer
     void scenarioLists().then((l) => {
       setLists(l);
       // the cheaper choice first, once a list is known, unless the reviewer already chose
@@ -166,30 +172,36 @@ function Choose({
       <fieldset className="flex flex-col gap-2">
         <legend className="mb-1 text-sm">{e ? 'Or run it again:' : 'What should run?'}</legend>
         <div className="grid gap-2 sm:grid-cols-2">
-          <Choice
-            title="Quick check"
-            lines={
-              lists[0]
-                ? [
-                    `${lists[0].scenarios} scenarios × 1 run`,
-                    'about 45 min',
-                    lists[0].path.split('/').pop() ?? '',
-                  ]
-                : ['needs a scenario list in the project']
-            }
-            selected={same(quick, options)}
-            disabled={!quick}
-            onSelect={() => {
-              if (quick) setOptions(quick);
-              setPicked(true);
-            }}
-          />
+          {STUDY ? null : (
+            <Choice
+              title="Quick check"
+              lines={
+                lists[0]
+                  ? [
+                      `${lists[0].scenarios} scenarios × 1 run`,
+                      'about 45 min',
+                      lists[0].path.split('/').pop() ?? '',
+                    ]
+                  : ['needs a scenario list in the project']
+              }
+              selected={same(quick, options)}
+              disabled={!quick}
+              onSelect={() => {
+                if (quick) setOptions(quick);
+                setPicked(true);
+              }}
+            />
+          )}
           <Choice
             title="Full test"
-            lines={[
-              `${GRID_SCENARIOS} scenarios × ${DEFAULT_TRIALS.grid} runs`,
-              `up to ${DEFAULT_TIME.slice(0, 2).replace(/^0/, '')} h`,
-            ]}
+            lines={
+              STUDY
+                ? [`${SCENARIOS} scenarios × ${RUNS_PER_SCENARIO} runs`, 'up to 5 h']
+                : [
+                    `${GRID_SCENARIOS} scenarios × ${DEFAULT_TRIALS.grid} runs`,
+                    `up to ${DEFAULT_TIME.slice(0, 2).replace(/^0/, '')} h`,
+                  ]
+            }
             selected={same(FULL, options)}
             onSelect={() => {
               setOptions(FULL);
@@ -201,26 +213,32 @@ function Choose({
           <p className="text-xs text-text-muted">Custom: {describe(options, lists)}</p>
         ) : null}
       </fieldset>
-      <Disclosure summary="More options (search, runs, time limit, provenance)">
-        <div className="pt-2">
-          <RunOptionsForm
-            value={options}
-            onChange={(o) => {
-              setOptions(o);
-              setPicked(true);
-            }}
-            lists={lists}
-          />
-        </div>
-      </Disclosure>
+      {STUDY ? null : (
+        <Disclosure summary="More options (search, runs, time limit, provenance)">
+          <div className="pt-2">
+            <RunOptionsForm
+              value={options}
+              onChange={(o) => {
+                setOptions(o);
+                setPicked(true);
+              }}
+              lists={lists}
+            />
+          </div>
+        </Disclosure>
+      )}
       <label className="flex flex-wrap items-center gap-2 text-xs text-text-muted">
         Saved as <code>requirements/</code>
-        <input
-          aria-label="File name"
-          value={fileName}
-          onChange={(ev) => onFileName(ev.target.value)}
-          className="w-48 rounded-md border border-border bg-surface-raised px-2 py-0.5 font-mono text-xs text-text"
-        />
+        {STUDY ? (
+          <code>{fileName}</code>
+        ) : (
+          <input
+            aria-label="File name"
+            value={fileName}
+            onChange={(ev) => onFileName(ev.target.value)}
+            className="w-48 rounded-md border border-border bg-surface-raised px-2 py-0.5 font-mono text-xs text-text"
+          />
+        )}
       </label>
       <div className="flex justify-end gap-2">
         <Button size="sm" variant="quiet" onClick={actions.close}>
@@ -240,6 +258,7 @@ function Choose({
 }
 
 function describe(o: RunOptions, lists: ScenarioList[]): string {
+  if (STUDY) return `${SCENARIOS} scenarios × ${RUNS_PER_SCENARIO} runs, up to ${TIME_LIMIT}`;
   const trials = o.trials ?? DEFAULT_TRIALS[o.search];
   const time = o.time ?? DEFAULT_TIME;
   if (o.search === 'grid') return `${GRID_SCENARIOS} scenarios × ${trials} runs, up to ${time}`;
@@ -499,7 +518,7 @@ function Command({ text }: { text: string }) {
 
 function Run({ state, actions }: { state: RunTestState; actions: Actions }) {
   const job = 'job' in state ? state.job : undefined;
-  if (state.phase === 'opening') return <Muted>Opening the Test Execution Result…</Muted>;
+  if (state.phase === 'opening') return <Muted>Opening the review…</Muted>;
   if (!job) return null;
   const queued = job.state === 'PENDING';
   const ended = state.phase === 'fetching' || state.phase === 'ended';
@@ -528,7 +547,7 @@ function Run({ state, actions }: { state: RunTestState; actions: Actions }) {
           status={state.phase === 'fetching' ? 'now' : state.phase === 'ended' ? 'done' : 'next'}
           title="Bringing the results back"
         />
-        <Stage status="next" title="Opening the Test Execution Result" />
+        <Stage status="next" title="Opening the review" />
       </ol>
 
       {state.phase === 'tracking' && job.partial?.done != null && job.run_id ? (
@@ -542,7 +561,9 @@ function Run({ state, actions }: { state: RunTestState; actions: Actions }) {
         </div>
       ) : null}
       {state.phase === 'tracking' ? (
-        <Muted>You can close this panel; the job keeps running and the results open here.</Muted>
+        <Instructions>
+          You can close this panel; the job keeps running and the results open here.
+        </Instructions>
       ) : null}
 
       {state.phase === 'ended' ? <Ended job={job} actions={actions} /> : null}
