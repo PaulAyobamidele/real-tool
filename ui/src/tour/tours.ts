@@ -1,4 +1,5 @@
 import type { Route } from '@/state/route';
+import { HELP_VIDEO_URL } from '@/config/help';
 import { STUDY } from '@/study/config';
 import { authorTitle } from '@/study/labels';
 
@@ -56,11 +57,16 @@ export function tourOf(key: string): TourStop[] {
         instructions(
           'Every page opens with a box like this one: what the page is for, then the action to take, after the arrow.',
         ),
-        {
-          element: 'section[aria-label="Help video"]',
-          title: 'A short introduction',
-          text: 'Prefer to watch? The video walks through the tool step by step.',
-        },
+        // the video card is on the page only when a video is configured
+        ...(HELP_VIDEO_URL
+          ? [
+              {
+                element: 'section[aria-label="Help video"]',
+                title: 'A short introduction',
+                text: 'Prefer to watch? The video walks through the tool step by step.',
+              },
+            ]
+          : []),
         {
           element: 'section[aria-label="Overview of the tool"]',
           title: 'How REAL works',

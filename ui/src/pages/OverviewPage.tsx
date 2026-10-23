@@ -122,11 +122,14 @@ function ToolOverview() {
         page
         className="!max-w-6xl"
         steps={[
-          'Read how REAL works (about 3 minutes), or watch the short introduction video below.',
+          HELP_VIDEO_URL
+            ? 'Read how REAL works (about 3 minutes), or watch the short introduction video below.'
+            : 'Read how REAL works (about 3 minutes).',
           `To test a requirement, open ${authorTitle()}; to review a round that has already run, open the Workspace.`,
         ]}
       />
-      <HelpVideo />
+      {/* the video card only when a video is configured (VITE_HELP_VIDEO_URL) */}
+      {HELP_VIDEO_URL ? <HelpVideo /> : null}
       <Section title="What REAL is for">
         <p>
           REAL turns the failures an autonomous system shows in simulation into a revised
